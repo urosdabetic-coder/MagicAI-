@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
   Sparkles,
@@ -11,12 +12,14 @@ import {
   Clock,
   User,
   Eye,
+  CheckCircle2,
 } from "lucide-react";
 import type {
   Workpaper,
   DraftedFinding,
   ComplianceInsight,
 } from "@/types";
+import { useAuditStore } from "@/lib/store";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
@@ -31,15 +34,35 @@ interface WorkpaperViewProps {
   workpaper: Workpaper;
 }
 
-export function WorkpaperView({ workpaper: initialWorkpaper }: WorkpaperViewProps) {
-  const [workpaper, setWorkpaper] = useState(initialWorkpaper);
-  const [notes, setNotes] = useState(initialWorkpaper.rawNotes);
+export function WorkpaperView({ workpaper }: WorkpaperViewProps) {
+  const router = useRouter();
+  const saveWorkpaperNotes = useAuditStore((s) => s.saveWorkpaperNotes);
+  const setWorkpaperStatus = useAuditStore((s) => s.setWorkpaperStatus);
+  const saveDraftedFinding = useAuditStore((s) => s.saveDraftedFinding);
+  const promoteDraftToFinding = useAuditStore((s) => s.promoteDraftToFinding);
+  const findingsForWorkpaper = useAuditStore((s) =>
+    s.findings.filter((f) => f.workpaperId === workpaper.id)
+  );
+
+  // Local draft of notes (committed to store on blur / every few seconds)
+  const [notes, setNotes] = useState(workpaper.rawNotes);
+
+  // Keep local state in sync if a different workpaper loads
+  useEffect(() => {
+    setNotes(workpaper.rawNotes);
+  }, [workpaper.id, workpaper.rawNotes]);
+
+  // Debounced autosave for notes
+  useEffect(() => {
+    if (notes === workpaper.rawNotes) return;
+    const t = setTimeout(() => {
+      saveWorkpaperNotes(workpaper.id, notes);
+    }, 800);
+    return () => clearTimeout(t);
+  }, [notes, workpaper.id, workpaper.rawNotes, saveWorkpaperNotes]);
 
   // Drafting Assistant state
   const [draftLoading, setDraftLoading] = useState(false);
-  const [draftFinding, setDraftFinding] = useState<DraftedFinding | null>(
-    initialWorkpaper.draftedFinding ?? null
-  );
   const [draftError, setDraftError] = useState<string | null>(null);
 
   // Compliance Checker state
@@ -50,11 +73,11 @@ export function WorkpaperView({ workpaper: initialWorkpaper }: WorkpaperViewProp
   >(null);
 
   const isReviewMode = workpaper.status === "in_review";
+  const alreadyPromoted = findingsForWorkpaper.length > 0;
 
   async function handleDraftFinding() {
     setDraftLoading(true);
     setDraftError(null);
-    setDraftFinding(null);
     try {
       const res = await fetch("/api/ai/drafting", {
         method: "POST",
@@ -63,7 +86,7 @@ export function WorkpaperView({ workpaper: initialWorkpaper }: WorkpaperViewProp
       });
       const data = await res.json();
       if (data.success) {
-        setDraftFinding(data.finding);
+        saveDraftedFinding(workpaper.id, data.finding as DraftedFinding);
       } else {
         setDraftError(data.error ?? "Unknown error");
       }
@@ -84,7 +107,11 @@ export function WorkpaperView({ workpaper: initialWorkpaper }: WorkpaperViewProp
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           workpaperId: workpaper.id,
-          workpaperContent: buildWorkpaperContent(workpaper, notes, draftFinding),
+          workpaperContent: buildWorkpaperContent(
+            workpaper,
+            notes,
+            workpaper.draftedFinding ?? null
+          ),
         }),
       });
       const data = await res.json();
@@ -99,15 +126,23 @@ export function WorkpaperView({ workpaper: initialWorkpaper }: WorkpaperViewProp
   }
 
   function handleSubmitForReview() {
-    setWorkpaper({ ...workpaper, status: "in_review" });
+    saveWorkpaperNotes(workpaper.id, notes);
+    setWorkpaperStatus(workpaper.id, "in_review");
   }
 
   function handleApprove() {
-    setWorkpaper({ ...workpaper, status: "approved" });
+    setWorkpaperStatus(workpaper.id, "approved");
   }
 
   function handleReturn() {
-    setWorkpaper({ ...workpaper, status: "returned" });
+    setWorkpaperStatus(workpaper.id, "returned");
+  }
+
+  function handleAcceptDraft() {
+    const finding = promoteDraftToFinding(workpaper.id);
+    if (finding) {
+      router.push(`/audits/${workpaper.auditId}`);
+    }
   }
 
   return (
@@ -115,11 +150,11 @@ export function WorkpaperView({ workpaper: initialWorkpaper }: WorkpaperViewProp
       <div className="mx-auto max-w-4xl px-6 py-8 lg:px-10 lg:py-10">
         {/* Breadcrumb + back */}
         <Link
-          href="/"
+          href={`/audits/${workpaper.auditId}`}
           className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
         >
           <ArrowLeft className="h-3.5 w-3.5" />
-          Back to dashboard
+          Back to {workpaper.auditTitle}
         </Link>
 
         {/* Header */}
@@ -146,25 +181,20 @@ export function WorkpaperView({ workpaper: initialWorkpaper }: WorkpaperViewProp
             </div>
           </div>
 
-          {/* Action area (adapts based on status) */}
+          {/* Action area */}
           <div className="flex items-center gap-2">
             {isReviewMode ? (
               <ReviewerActions
                 onComplianceCheck={handleComplianceCheck}
                 onApprove={handleApprove}
                 onReturn={handleReturn}
-                reviewer={workpaper.reviewer}
               />
-            ) : workpaper.status === "draft" ? (
+            ) : workpaper.status === "draft" || workpaper.status === "returned" ? (
               <>
                 <Button variant="ghost" size="icon">
                   <MoreHorizontal className="h-4 w-4" />
                 </Button>
-                <Button
-                  size="sm"
-                  onClick={handleSubmitForReview}
-                  className="gap-1.5"
-                >
+                <Button size="sm" onClick={handleSubmitForReview} className="gap-1.5">
                   <Send className="h-3.5 w-3.5" />
                   Submit for review
                 </Button>
@@ -200,7 +230,7 @@ export function WorkpaperView({ workpaper: initialWorkpaper }: WorkpaperViewProp
 
         <Separator className="my-8" />
 
-        {/* Metadata — Notion-like inline property list */}
+        {/* Metadata */}
         <div className="space-y-3">
           <MetaRow label="Objective" value={workpaper.objective} />
           <MetaRow label="Scope" value={workpaper.scope} />
@@ -230,13 +260,11 @@ export function WorkpaperView({ workpaper: initialWorkpaper }: WorkpaperViewProp
 
         <Separator className="my-8" />
 
-        {/* Raw notes section */}
+        {/* Raw notes */}
         <div>
           <div className="flex items-baseline justify-between">
             <div>
-              <h2 className="text-sm font-semibold tracking-tight">
-                Fieldwork notes
-              </h2>
+              <h2 className="text-sm font-semibold tracking-tight">Fieldwork notes</h2>
               <p className="mt-0.5 text-xs text-muted-foreground">
                 Write freely. The AI will structure your notes into an IIA-compliant finding.
               </p>
@@ -266,7 +294,6 @@ export function WorkpaperView({ workpaper: initialWorkpaper }: WorkpaperViewProp
                 "disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:shadow-none disabled:hover:border-border/60"
               )}
             >
-              {/* Subtle gradient sheen on hover */}
               <div
                 className="pointer-events-none absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-foreground/[0.04] to-transparent transition-transform duration-700 group-hover:translate-x-full"
                 aria-hidden="true"
@@ -290,31 +317,33 @@ export function WorkpaperView({ workpaper: initialWorkpaper }: WorkpaperViewProp
               </div>
             </button>
 
-            {draftError && (
-              <p className="mt-3 text-xs text-red-600">{draftError}</p>
-            )}
+            {draftError && <p className="mt-3 text-xs text-red-600">{draftError}</p>}
           </div>
         )}
 
-        {/* AI Output area */}
+        {/* AI Output */}
         <div className="mt-8 space-y-6">
           {draftLoading && <DraftingSkeleton />}
-          {!draftLoading && draftFinding && (
-            <DraftingResult
-              finding={draftFinding}
-              onRegenerate={handleDraftFinding}
-              onAccept={() => {
-                /* no-op for MVP */
-              }}
-            />
+          {!draftLoading && workpaper.draftedFinding && (
+            <div>
+              <DraftingResult
+                finding={workpaper.draftedFinding}
+                onRegenerate={handleDraftFinding}
+                onAccept={handleAcceptDraft}
+              />
+              {alreadyPromoted && (
+                <div className="mt-3 flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800 dark:border-emerald-900/40 dark:bg-emerald-950/30 dark:text-emerald-300">
+                  <CheckCircle2 className="h-3.5 w-3.5" />
+                  This draft has been promoted to a tracked finding.
+                </div>
+              )}
+            </div>
           )}
         </div>
 
-        {/* Bottom padding */}
         <div className="h-16" />
       </div>
 
-      {/* Slide-out compliance panel */}
       <ComplianceSheet
         open={complianceOpen}
         onOpenChange={setComplianceOpen}
@@ -325,13 +354,7 @@ export function WorkpaperView({ workpaper: initialWorkpaper }: WorkpaperViewProp
   );
 }
 
-function MetaRow({
-  label,
-  value,
-}: {
-  label: string;
-  value: React.ReactNode;
-}) {
+function MetaRow({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div className="flex items-start gap-6 text-sm">
       <span className="min-w-[100px] pt-0.5 text-xs font-medium text-muted-foreground">
@@ -346,12 +369,10 @@ function ReviewerActions({
   onComplianceCheck,
   onApprove,
   onReturn,
-  reviewer,
 }: {
   onComplianceCheck: () => void;
   onApprove: () => void;
   onReturn: () => void;
-  reviewer?: { name: string; initials: string; avatarColor: string };
 }) {
   return (
     <>

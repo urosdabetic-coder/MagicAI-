@@ -29,7 +29,7 @@ export function AuditCard({ audit }: AuditCardProps) {
 
   return (
     <Link
-      href={`/workpapers/wp-001`}
+      href={`/audits/${audit.id}`}
       className="group block rounded-xl border border-border/60 bg-card p-5 shadow-sm transition-all duration-300 hover:border-border hover:shadow-md hover:-translate-y-0.5"
     >
       {/* Header row */}
@@ -99,16 +99,17 @@ export function AuditCard({ audit }: AuditCardProps) {
         <div className="flex -space-x-1.5">
           {audit.team.slice(0, 3).map((member) => (
             <Avatar
-              key={member.id}
+              key={member.auditor.id}
               className="h-6 w-6 border-2 border-card"
             >
               <AvatarFallback
                 className={cn(
-                  member.avatarColor,
+                  member.auditor.avatarColor,
                   "text-[9px] font-semibold text-white"
                 )}
+                title={`${member.auditor.name} — ${member.role}`}
               >
-                {member.initials}
+                {member.auditor.initials}
               </AvatarFallback>
             </Avatar>
           ))}
