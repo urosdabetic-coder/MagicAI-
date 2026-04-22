@@ -4,7 +4,6 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   LayoutDashboard,
-  FileText,
   Settings,
   Sparkles,
   ShieldCheck,
@@ -15,8 +14,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 
 const navigation = [
   { name: "Dashboard", href: "/", icon: LayoutDashboard },
-  { name: "Workpapers", href: "/workpapers/wp-001", icon: FileText },
-  { name: "Findings", href: "#", icon: ShieldCheck, disabled: true },
+  { name: "Findings", href: "/findings", icon: ShieldCheck },
   { name: "Library", href: "#", icon: BookOpen, disabled: true },
   { name: "Settings", href: "#", icon: Settings, disabled: true },
 ];
@@ -28,15 +26,17 @@ export function Sidebar() {
     <aside className="fixed inset-y-0 left-0 z-40 hidden w-64 border-r border-border/60 bg-card lg:flex lg:flex-col">
       {/* Brand */}
       <div className="flex h-16 items-center gap-2.5 border-b border-border/60 px-6">
-        <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground">
-          <Sparkles className="h-3.5 w-3.5" />
-        </div>
-        <div className="flex flex-col leading-tight">
-          <span className="text-sm font-semibold tracking-tight">AuditFlow</span>
-          <span className="text-[10px] font-medium uppercase tracking-widest text-muted-foreground">
-            AI
-          </span>
-        </div>
+        <Link href="/" className="flex items-center gap-2.5">
+          <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground">
+            <Sparkles className="h-3.5 w-3.5" />
+          </div>
+          <div className="flex flex-col leading-tight">
+            <span className="text-sm font-semibold tracking-tight">AuditFlow</span>
+            <span className="text-[10px] font-medium uppercase tracking-widest text-muted-foreground">
+              AI
+            </span>
+          </div>
+        </Link>
       </div>
 
       {/* Nav */}
@@ -48,8 +48,7 @@ export function Sidebar() {
           const isActive =
             item.href === "/"
               ? pathname === "/"
-              : pathname.startsWith(item.href.split("/").slice(0, 2).join("/")) &&
-                item.href !== "#";
+              : item.href !== "#" && pathname.startsWith(item.href);
           const Icon = item.icon;
           return (
             <Link
@@ -91,9 +90,7 @@ export function Sidebar() {
           </Avatar>
           <div className="flex flex-col leading-tight min-w-0">
             <span className="text-sm font-medium truncate">Sarah Chen</span>
-            <span className="text-xs text-muted-foreground truncate">
-              Audit Manager
-            </span>
+            <span className="text-xs text-muted-foreground truncate">Audit Manager</span>
           </div>
         </div>
       </div>
